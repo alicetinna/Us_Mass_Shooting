@@ -1,0 +1,475 @@
+---
+title: "US_MASS_SHOOTING ANALYSIS"
+author: "Alice Tinna"
+date: "Nov 2020"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Dataset Details
+
+This dataset consists of various mass shooting incidents in the United States of America from 1966 to 5th Nov 2017. I have added some more data of incidents happened after November 5th, 2017 until March 2018.This dataset records 327 mass shooting incidents from 1966 to 2018 in which 1462 people are dead and 2020 are injured. The average number of mass shootings per year is 7 for last 50 years.From this dataset, we infer that on an average 34 deaths and 47 injuries per year.   
+
+
+## Goal
+
+The aim of this project is to visualize the effects of mass shootings in USA over the past 50 years, where statewise incidents, total number of victimes per year and analysis of shooters by age, gender. Additionally, applied central limit theorem on total victims , various sampling methos like simple random sampling with replacement, simple random sampling without replacement, systematic sampling and their , confidence intervals.
+
+
+
+
+## Data Preprocessing
+* In order to analyze the data for years, a universal date format should be maintained. The dataset consists of various date formats and hence had to be preprocessed to create proper(year/month) format throughout.
+
+* To analyze the data by genders, it should be in the same format.
+ Data was M, F, M/F, Male, Female and unknown, so it had to be  converted into Male, Female, Male/Female and unknown
+
+* To analyze the shooters by age, create an age group in which various ages are categorized into groups.
+
+* To analyze the statewide incidents, we need to find the state from the location and to plot it on the map need an appropriate state code.
+
+
+
+```{r echo=FALSE,include=FALSE, cache=FALSE}
+#library
+
+library("data.table")
+library("plotly")
+library("stringr")
+library("sampling")
+
+
+shooting_data <- read.csv("US_Mass_Shooting.csv")
+
+
+################################# Preprocessing of data set ########################
+
+##################### DATE ######################
+#into same date formate :-
+date <- as.character(shooting_data$Date)
+indx_na <- which(is.na(as.Date(date,format="%m-%d-%Y")))
+
+date_2 <- as.Date(date,format="%m-%d-%Y")
+date_2[indx_na]<- as.Date(date[indx_na],format="%m/%d/%Y")
+
+shooting_data$Date <- date_2 
+
+shooting_data <- data.table(shooting_data)
+
+attach(shooting_data)
+
+#Adding Month Column :-
+shooting_data$Month <- as.factor(month(Date))
+
+
+#Adding Year Column :-
+shooting_data$Year <- as.numeric(year(Date))
+############################################################
+
+####################### Gender #############################
+
+#Change Gender Full Names :- 
+shooting_data$Gender <- as.character(shooting_data$Gender)
+
+shooting_data$Gender[shooting_data$Gender == "M"] <- c("Male")
+shooting_data$Gender[shooting_data$Gender == "M/F"] <- c("Male/Female")
+shooting_data$Gender[is.na(shooting_data$Gender)] <- c("Unknown")
+
+shooting_data$Gender <- as.factor(shooting_data$Gender)
+
+
+################################################################
+
+######################## Age #############################
+
+#create age Groups :-
+ages <- data.frame(Age= as.numeric(shooting_data$Age))
+ages$group <- ""
+
+for(i in 1:nrow(ages)){
+  if(ages$Age[i] == "" | ages$Age[i]==0 |ages$Age[i]==1){
+    ages$group[i] <- "ND"
+  }else if(ages$Age[i] >= 10 & ages$Age[i] < 20){
+    ages$group[i] <-  "Under_20"
+  }else if(ages$Age[i]>= 20 & ages$Age[i]<30){
+    ages$group[i] <- "20's"
+  }else if(ages$Age[i]>=30 & ages$Age[i]<40){
+    ages$group[i] <- "30's"
+  }else if(ages$Age[i]>=40 & ages$Age[i]<50 ){
+    ages$group[i] <- "40's"
+  }else if(ages$Age[i]>=50 & ages$Age[i]<60 ){
+    ages$group[i] <- "60's"
+  }else if(ages$Age[i]>=60){
+    ages$group[i] <- "OLD"
+  }
+  
+}
+
+
+
+shooting_data$Age_Group <- ages$group 
+
+##############################################################
+
+############################# State ##########################
+
+#Seperate States and insert their codes :-
+states <- data.frame(State= as.character(str_trim(sapply(shooting_data$Location, function(x){
+  temp <- str_split(x, ",")
+  sapply(temp, function(y){y[2]
+    })
+}))))
+
+states$State <- as.character(states$State)
+
+state_code <- read.csv("States_list.csv")
+
+state_code$state <- as.character(state_code$state)
+state_code$code <- as.character(state_code$code)
+
+states$Code <- ""
+
+for(i in 1:(nrow(states))){
+  
+  if(is.na(states$State[i])){
+    states$Code[i] <- "NA"
+    
+  } else if((nchar(states$State[i])) > 2){
+    code <- as.character(state_code$code[str_to_lower(state_code$state) == str_to_lower(as.character(states$State[i]))])
+    states$Code[i] <- ifelse(length(code) == 0, NA,code)
+    State <- state_code$state[state_code$code == code]
+    states$State[i] <- ifelse(length(code) == 0, NA,State)
+     
+    
+  } else if ((nchar(states$State[i]))<= 2){
+    code <- as.character(state_code$code[str_to_lower(state_code$code) == str_to_lower(as.character(states$State[i]))])
+    states$Code[i] <- ifelse(length(code) == 0, NA,code)
+    State <- state_code$state[state_code$code == code]
+    states$State[i] <- ifelse(length(code) == 0, NA,State)
+  } else {
+    states$State[i] <- "wrong" 
+  }
+  
+
+  
+}
+
+
+
+shooting_data$state <- states$State
+shooting_data$state_code <- states$Code
+
+##################################################################
+
+########################## Total Victims ########################
+
+total_victims <- data.frame(State=rep("",48),TTL_Victim="",Fatalities="",Injured="")
+
+total_victims$State <- character(48)
+total_victims$TTL_Victim <- numeric(48)
+total_victims$Fatalities <- numeric(48)
+total_victims$Injured <- numeric(48)
+
+for(i in 1:length(names(table(shooting_data$state_code)))){
+  
+  total_victims$State[i] <- as.vector(names(table(shooting_data$state_code)))[i]
+  
+  total_victims$Fatalities[i] <- sum((shooting_data$Fatalities[shooting_data$state_code == total_victims$State[i]])[which(!is.na(shooting_data$Fatalities[shooting_data$state_code == total_victims$State[i]]))])
+  
+  total_victims$Injured[i] <- sum((shooting_data$Injured[shooting_data$state_code == total_victims$State[i]])[which(!is.na(shooting_data$Injured[shooting_data$state_code == total_victims$State[i]]))])
+  
+  total_victims$TTL_Victim[i] <- total_victims$Fatalities[i] + total_victims$Injured[i]
+  
+  shooting_data$ttl_victim <- shooting_data$Fatalities + shooting_data$Injured
+  
+  
+}
+
+
+```
+
+
+## Months by year Graph
+
+Below mentioned scatter plot shows mass shooting incidents by month and year and shooters by genders. 
+
+```{r echo=FALSE ,message=FALSE, warning=FALSE}
+
+## Mass Shootings in US by years and month
+
+years_month <- plot_ly(data = shooting_data,type = 'scatter', mode = 'markers', hoverinfo = 'text',x = ~Month, y = ~Year, size = ~`ttl_victim`, color = ~Gender, colors = c("red","blue","green","black"), alpha = 0.6, text = ~paste("Location: ", Location,'\n Date: ', Date,'\n Total.victims : ',`ttl_victim`,'\n Fatalities : ', Fatalities,'\n Injured : ', Injured)) %>% layout(title = "Mass Shootings in US by years and month", xaxis = list(title = "Month"), yaxis =list(title = "Years"))
+
+years_month
+
+```
+
+## Total Victims by years
+
+```{r echo=FALSE,message=FALSE,warning=FALSE}
+#Total victims by years :-
+
+victim_by_year <- plot_ly(data = shooting_data, type = 'bar',hoverinfo = 'text',x = ~Year,y = ~ `ttl_victim`,text = ~paste('Fatalities : ', Fatalities, '\n Injured : ', Injured)) %>% layout(title = "Number of Total victims by years", xaxis = list(title = ""), yaxis = list(title = "Number of victims"))
+
+
+victim_by_year
+```
+
+## Deaths by year
+
+```{r echo=FALSE ,message=FALSE, warning=FALSE}
+#Fatalites by year graph :-
+
+Fatalities_by_year <- plot_ly(shooting_data, type='bar', y = ~Fatalities, x= ~Year) %>% layout(title="Total incidents in Year", xaxis= list(title="Year"), yaxis= list(titile="No. of Incidents"))
+
+Fatalities_by_year
+```
+
+## Shooters by Ages
+
+```{r echo=FALSE,message=FALSE,warning=FALSE}
+table_by_age <- table(shooting_data$Age_Group[(shooting_data$Age_Group!="" & shooting_data$Age_Group!="ND")])
+
+shooter_by_age <- plot_ly(shooting_data, labels = ~names(table_by_age), values = ~table_by_age, type = 'pie', textposition = 'inside',textinfo = 'label+percent') %>% layout(title = "Shooter's By Age Groups", showlegend=T)
+
+shooter_by_age
+```
+
+## Number of Incidents by State 
+
+```{r echo=FALSE,message=FALSE,warning=FALSE}
+
+#global parameter for maps :-
+
+l <- list(color = toRGB("white"), width = 2)
+
+g <- list(scope = 'usa', projection = list(type = 'albers usa'), showlakes = TRUE, lakecolor = toRGB('white'))
+
+m <- list( l = 50, r = 50, b = 100,  t = 100,  pad = 4)
+
+incident_by_state <- plot_geo(shooting_data, locationmode = 'USA-states') %>%add_trace(z = as.vector(sort(table(shooting_data$state_code[shooting_data$state_code != "NA"]))), locations = names(sort(table(shooting_data$state_code[shooting_data$state_code != "NA"]))), color = as.vector(sort(table(shooting_data$state_code[shooting_data$state_code != "NA"]))), locations = names(table(shooting_data$state_code[shooting_data$state_code != "NA"])), colors = 'Reds',text= ~(names(sort(table(shooting_data$state))))) %>% colorbar(title = "Number of Incidents") %>%  layout(title = 'Mass Shooting Incidents State-wise', geo = g,autosize = F)
+
+
+incident_by_state
+
+
+```
+
+## Total victims by state
+
+
+```{r echo=FALSE,message=FALSE,warning=FALSE}
+#total victims by state :-
+
+ttl_victim_by_state <- plot_geo(total_victims[total_victims$State!="NA",], locationmode = 'USA-states') %>% add_trace(z = ~TTL_Victim, locations = ~State,color = ~TTL_Victim, colors = 'Purples', text= ~paste("Fatalities : ", total_victims[total_victims$State!="NA",]$Fatalities, "\n Injured : ", total_victims[total_victims$State!="NA",]$Injured)) %>% colorbar(title = "Total Victims") %>%  layout( title = 'Mass Shooting Total Victims State-wise', geo = g)
+
+ttl_victim_by_state
+
+```
+
+## Distribution of Data 
+
+Below histograms shows the distribution of total number of victims present in the dataset.We can see that from the data its right skewed.
+
+```{r echo=FALSE,message=FALSE,warning=FALSE}
+
+plot_ly(shooting_data, type='histogram', x = shooting_data$ttl_victim[shooting_data$ttl_victim<100],nbinsx=100)
+
+```
+
+## Central Limit Theorem
+
+When the number of samples taken from a population is sufficiently large, the sampling distribution of the sample mean, will be approximately normally distributed with an expected value of mu and a standard deviation of sigma .The larger the sample size, the closer the sampling distribution of the sample means will be to the normal distribution. The Central Limit Theorem also holds even if the data is not from a normal distribution.
+
+I took the 10000 sample with different sample size like 10, 20, 30, 50, which proves the central limit theorm.By increasing the sample sizes result in the distribution becoming less skewed and slowly approaching the shape of a normal distribution.
+
+```{r echo=FALSE,message=FALSE,warning=FALSE}
+
+#central limit theorem :-
+
+ttl <- as.numeric(shooting_data$ttl_victim[shooting_data$ttl_victim<100])
+
+samples <- 10000
+
+mean_size_10 <- numeric(samples)
+mean_size_20 <- numeric(samples)
+mean_size_30 <- numeric(samples)
+mean_size_50 <- numeric(samples)
+
+set.seed(123)
+
+for(i in 1:samples){
+  mean_size_10[i]<- mean(sample(ttl, size=10, replace = T))
+  mean_size_20[i]<- mean(sample(ttl, size=20, replace = T))
+  mean_size_30[i]<- mean(sample(ttl, size=30, replace = T))
+  mean_size_50[i]<- mean(sample(ttl, size=50, replace = T))
+}
+
+
+p1 <- plot_ly(x=mean_size_10, type='histogram' ,nbinsx=100, color = "", colors = c("Oranges"), name="10")
+
+p2 <- plot_ly(x=mean_size_20, type='histogram' ,nbinsx=100, color = "", colors = c("Greens"), name="20") 
+
+p3 <- plot_ly(x=mean_size_30, type='histogram' ,nbinsx=100, color = "", colors = c("Purples"),name="30")
+
+p4 <- plot_ly(x=mean_size_50, type='histogram' ,nbinsx=100, color = "", colors = c("Blues"), name="50")
+
+cat("Population , Mean =",round(mean(ttl),3), ", SD = ", round(sd(ttl),3))
+cat("Sampe Size 10, Mean =", round(mean(mean_size_10),3), ', SD =',round(sd(ttl)/(sqrt(10)),3),"\nSampe Size 20, Mean =", round(mean(mean_size_20),3),", SD =",round(sd(ttl)/(sqrt(20)),3),"\nSampe Size 30, Mean =", round(mean(mean_size_30),3),", SD =",round(sd(ttl)/(sqrt(30)),3),"\nSampe Size 50, Mean =", round(mean(mean_size_50),3),", SD =",round(sd(ttl)/(sqrt(50)),3))
+
+```
+
+```{r  message=FALSE, warning=FALSE}
+subplot(nrows=2,p1,p2,p3,p4) %>% layout(title = "Sampling Distribution ")
+
+```
+
+## Sampling Methods
+
+We used the different sampling methods to show how to take sample from the population and what we can infer from the samples about the population.I used simple random sampling with replacement (SRSWR) , Simple random sampling without replacement (SRSWOR), Systematic sampling , Uneqaul probability Sampling (Systematic). In the below mentioned graphs(histogram) first is from the population and rest of grphs(histogram) are from different sampling methods.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+#Simple random sampling with replacementr(SRSWR)
+set.seed(123)
+
+sampling_wr <- srswr(100, nrow(shooting_data))
+
+selected_data <- (1:nrow(shooting_data))[sampling_wr!=0]
+selected_data <- rep(selected_data,sampling_wr[sampling_wr!=0])
+sample_srswr <- shooting_data[selected_data,] 
+
+original_data <- plot_ly(x=shooting_data$ttl_victim, type='histogram' ,nbinsx=100, color = "", colors = c("Greys"), name="TTL_Victim")
+hist_srswr <- plot_ly(x=sample_srswr$ttl_victim, type='histogram' ,nbinsx=100, color = "", colors = c("Oranges"), name="SRSWR")
+
+
+#Simple random sampling without replacementr(SRSWOR):-
+set.seed(123)
+
+sampling_swor <- srswor(100, nrow(shooting_data))
+sample_srswor <- shooting_data[sampling_swor!=0,]
+
+hist_srswor <- plot_ly(x=sample_srswor$ttl_victim, type='histogram' ,nbinsx=100, color = "", colors = c("Blues"), name="SRSWOR")
+
+
+#Systematic Sampling :-
+set.seed(123)
+
+N <- nrow(shooting_data)
+n <- 100
+
+k <- ceiling(N / n)
+#k
+
+r <- sample(k, 1)
+#r
+
+# select every kth item
+s <- seq(r, by = k, length = n)
+
+sample_systematic <- shooting_data[s, ]
+
+hist_systematic <- plot_ly(x=sample_systematic$ttl_victim, type='histogram' ,nbinsx=100, color = "", colors = c("Reds"), name="Systematic")
+
+
+
+#uequal probability sampling
+set.seed(113)
+
+pik <- inclusionprobabilities(shooting_data$ttl_victim, 100)
+
+s <- UPsystematic(pik)
+
+sample_upsystematic <- shooting_data[s != 0, ]
+
+hist_upsystematic <- plot_ly(x=sample_upsystematic$ttl_victim, type='histogram' ,nbinsx=100, color = "", colors = c("Greens"), name="UPSystematic")
+
+
+subplot(nrows=5,original_data, hist_srswr,hist_srswor, hist_systematic,hist_upsystematic)
+
+
+```
+
+
+## Confidence Intervals
+
+Confidence interval is the range of the population mean or estimate of the population mu. Confidence level mentioned that from how much percent we can say that population mean would be in that range. For our project purpose we use two confidence level 80 and 90.
+
+```{r echo=FALSE, message=FALSE, warning=FALSE}
+
+#Population mean, sd, confidence interval and aplha level:-
+pop.mean <- mean(shooting_data$ttl_victim)
+pop.sd <- sd(shooting_data$ttl_victim)
+conf <- c(80, 90)
+alpha <- 1 - conf/100
+
+cat("Total Victim : mean =",pop.mean," and sd =",pop.sd)
+
+
+for (i in alpha) {
+  str_srswr <- sprintf("%2d%% Conf Level (alpha = %.2f), CI = %.2f - %.2f",
+                 100*(1-i), i, 
+                 pop.mean - qnorm(1-i/2) * pop.sd,
+                 pop.mean + qnorm(1-i/2) * pop.sd)
+  cat(str_srswr,"\n")
+}
+
+#srswr :-
+
+
+sd.sample.means_srswr <- pop.sd/sqrt(nrow(sample_srswr))
+xbar_srswr <- mean(sample_srswr$ttl_victim)
+cat("SRSWR : mean =",xbar_srswr," and sd =",sd.sample.means_srswr)
+
+for (i in alpha) {
+  str_srswr <- sprintf("%2d%% Conf Level (alpha = %.2f), CI = %.2f - %.2f",
+                 100*(1-i), i, 
+                 xbar_srswr - qnorm(1-i/2) * sd.sample.means_srswr,
+                 xbar_srswr + qnorm(1-i/2) * sd.sample.means_srswr)
+  cat(str_srswr,"\n")
+}
+
+#srswor :-
+sd.sample.means_srswor <- pop.sd/sqrt(nrow(sample_srswor))
+xbar_srswor <- mean(sample_srswor$ttl_victim)
+cat("SRSWOR : mean =",xbar_srswor," and sd =",sd.sample.means_srswor)
+
+for (i in alpha) {
+  str_srswor <- sprintf("%2d%% Conf Level (alpha = %.2f), CI = %.2f - %.2f",
+                 100*(1-i), i, 
+                 xbar_srswor - qnorm(1-i/2) * sd.sample.means_srswor,
+                 xbar_srswor + qnorm(1-i/2) * sd.sample.means_srswor)
+  cat(str_srswor,"\n")
+}
+
+
+#systematic :-
+
+sd.sample.means_systematic <- pop.sd/sqrt(nrow(sample_systematic))
+xbar_systematic <- mean(sample_systematic$ttl_victim[!is.na(sample_systematic$ttl_victim)])
+cat("SRSWOR : mean =",xbar_systematic," and sd =",sd.sample.means_systematic)
+
+for (i in alpha) {
+  str_systematic <- sprintf("%2d%% Conf Level (alpha = %.2f), CI = %.2f - %.2f",
+                 100*(1-i), i, 
+                 xbar_systematic - qnorm(1-i/2) * sd.sample.means_systematic,
+                 xbar_systematic + qnorm(1-i/2) * sd.sample.means_systematic)
+  cat(str_systematic,"\n")
+}
+
+#Upsystematic :-
+sd.sample.means_upsystematic <- pop.sd/sqrt(nrow(sample_upsystematic))
+xbar_upsystematic <- mean(sample_upsystematic$ttl_victim[!is.na(sample_upsystematic$ttl_victim)])
+cat("UPSystematic : mean =",xbar_upsystematic," and sd =",sd.sample.means_upsystematic)
+
+for (i in alpha) {
+  str_upsystematic <- sprintf("%2d%% Conf Level (alpha = %.2f), CI = %.2f - %.2f",
+                 100*(1-i), i, 
+                 xbar_upsystematic - qnorm(1-i/2) * sd.sample.means_upsystematic,
+                 xbar_upsystematic + qnorm(1-i/2) * sd.sample.means_upsystematic)
+  cat(str_upsystematic,"\n")
+}
+
+
+```
