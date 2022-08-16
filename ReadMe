@@ -1,0 +1,4 @@
+The aim of this project is to visualize the effects of mass shootings in USA over the past 50 years,
+where statewise incidents, total number of victimes per year and analysis of shooters by age, gender. 
+Additionally, applied central limit theorem on total victims , various sampling methos like simple random sampling with 
+replacement, simple random sampling without replacement, systematic sampling and their , confidence intervals.
